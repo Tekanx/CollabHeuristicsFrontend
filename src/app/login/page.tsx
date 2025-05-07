@@ -37,14 +37,12 @@ export default function LoginPage() {
     setError('');
     
     try {
-      const success = await login(formData.username, formData.password);
-      if (success.role === 'Coordinador') {
-        router.push('/dashboard/coordinator');
-      } else if (success.role === 'Evaluador') {
-        router.push('/dashboard/evaluator');
+      const result = await login(formData.username, formData.password);
+      if (!result.success) {
+        setError(result.message || 'Error al iniciar sesión');
       }
     } catch (err) {
-      setError('Credenciales inválidas');
+      setError('Error al conectar con el servidor');
     }
   };
 
@@ -81,7 +79,7 @@ export default function LoginPage() {
               required
               fullWidth
               id="username"
-              label="Username"
+              label="Nombre de usuario"
               name="username"
               autoComplete="username"
               autoFocus
@@ -93,7 +91,7 @@ export default function LoginPage() {
               required
               fullWidth
               name="password"
-              label="Password"
+              label="Contraseña"
               type={showPassword ? 'text' : 'password'}
               id="password"
               autoComplete="current-password"
