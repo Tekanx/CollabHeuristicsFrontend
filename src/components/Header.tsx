@@ -1,105 +1,64 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import {
-  AppBar,
-  Toolbar,
-  IconButton,
-  Typography,
-  Button,
-  Avatar,
-  Menu,
-  MenuItem,
-  Box,
-} from '@mui/material';
+import { AppBar, Toolbar, Typography, IconButton, Box, Avatar, Menu, MenuItem } from '@mui/material';
+import { AccountCircle } from '@mui/icons-material';
 import { useAuth } from '@/hooks/useAuth';
+import { useRouter } from 'next/navigation';
+import Image from 'next/image';
+import React, { useState } from 'react';
 
-interface HeaderProps {
-  dashboardPath?: string;
-}
-
-export default function Header({ dashboardPath = '/dashboard' }: HeaderProps) {
+export default function Header() {
+  const { user, logout, getDashboardPath } = useAuth();
   const router = useRouter();
-  const { user, logout } = useAuth();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const open = Boolean(anchorEl);
 
-  const handleMenu = (event: React.MouseEvent<HTMLElement>) => {
+  const handleLogoClick = () => {
+    router.push(getDashboardPath());
+  };
+
+  const handleUserMenu = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
   };
-
-  const handleClose = () => {
+  const handleMenuClose = () => {
     setAnchorEl(null);
   };
-
-  const handleProfile = () => {
-    handleClose();
+  const handleProfileClick = () => {
+    handleMenuClose();
     router.push('/profile');
   };
-
   const handleLogout = () => {
-    handleClose();
+    handleMenuClose();
     logout();
   };
 
   return (
     <AppBar position="static">
-      <Toolbar>
-        <IconButton
-          edge="start"
-          color="inherit"
-          aria-label="app icon"
-          onClick={() => router.push(dashboardPath)}
-          sx={{ mr: 2 }}
-        >
-          App
-        </IconButton>
-
-        <Box sx={{ flexGrow: 1, display: 'flex', gap: 2 }}>
-          <Button 
-            color="inherit" 
-            onClick={() => router.push(dashboardPath)}
-          >
-            Dashboard
-          </Button>
-          <Button 
-            color="inherit"
-            onClick={() => router.push('/workspace')}
-          >
-            Workspace
-          </Button>
+      <Toolbar sx={{ justifyContent: 'space-between' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }} onClick={handleLogoClick}>
+          <Image src="/HeuristicAppLogo.png" alt="HeuristicApp Logo" width={40} height={40} style={{ marginRight: 12 }} />
+          <Typography variant="h6" component="div" sx={{ fontWeight: 600, letterSpacing: 1 }}>
+            HeuristicApp
+          </Typography>
         </Box>
-
-        <div>
-          <IconButton
-            size="large"
-            aria-label="account of current user"
-            aria-controls="menu-appbar"
-            aria-haspopup="true"
-            onClick={handleMenu}
-            color="inherit"
-          >
-            <Avatar>{user?.username.charAt(0).toUpperCase()}</Avatar>
-          </IconButton>
-          <Menu
-            id="menu-appbar"
-            anchorEl={anchorEl}
-            anchorOrigin={{
-              vertical: 'bottom',
-              horizontal: 'right',
-            }}
-            keepMounted
-            transformOrigin={{
-              vertical: 'top',
-              horizontal: 'right',
-            }}
-            open={Boolean(anchorEl)}
-            onClose={handleClose}
-          >
-            <MenuItem onClick={handleProfile}>Perfil</MenuItem>
-            <MenuItem onClick={handleLogout}>Cerrar sesión</MenuItem>
-          </Menu>
-        </div>
+        {user && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <IconButton size="large" color="inherit" onClick={handleUserMenu}>
+              <AccountCircle />
+            </IconButton>
+            <Typography variant="body1" sx={{ fontWeight: 500 }}>{user.username} - {user.role === 'COORDINADOR' ? 'Coordinador' : 'Evaluador'}</Typography>
+            <Menu
+              anchorEl={anchorEl}
+              open={open}
+              onClose={handleMenuClose}
+              anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+              transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+            >
+              <MenuItem onClick={handleProfileClick}>Perfil</MenuItem>
+              <MenuItem onClick={handleLogout}>Cerrar sesión</MenuItem>
+            </Menu>
+          </Box>
+        )}
       </Toolbar>
     </AppBar>
   );
