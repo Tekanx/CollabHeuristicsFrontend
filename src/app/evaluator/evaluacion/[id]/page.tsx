@@ -48,6 +48,13 @@ import Paso1EncontrarProblemas from '@/components/evaluacion/pasos/Paso1Encontra
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import Paso2Consolidar from '@/components/evaluacion/pasos/Paso2Consolidar';
 import Paso3Resumen from '@/components/evaluacion/pasos/Paso3Resumen';
+import { heuristicService } from '@/services/heuristicaService';
+import { Heuristica } from '@/components/interface/Heuristica';
+import { PrincipioHeuristica } from '@/components/interface/PrincipioHeuristica';
+import { problemaService } from '@/services/problemaService';
+import axios from '@/utils/axiosConfig';
+import { Problema } from '@/components/interface/Problema';
+import { evaluacionService } from '@/services/evaluacionService';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -75,91 +82,36 @@ function TabPanel(props: TabPanelProps) {
   );
 }
 
-// Mock data for the problems table
-interface Problem {
-  id: string;
-  name: string;
-  heuristic: string;
-  comments: string;
-  image: string;
-}
-
-const mockProblems: Problem[] = Array.from({ length: 20 }, (_, i) => ({
-  id: `HE-${String(i + 1).padStart(2, '0')}`,
-  name: `Ejemplo de nombre del error que fue encontrado por el evaluador ${i + 1}`,
-  heuristic: `Ejemplo de incumplido N${i + 1}`,
-  comments: `Ejemplo de comentario largo del evaluador que explica el incumplimiento encontrado ${i + 1}`,
-  image: '/map.png',
-}));
-
 interface BarData {
   heuristic: string;
+  name: string;
   value: number;
   id: number;
   color: string;
 }
 
-// Nielsen's heuristics with default colors
-const NIELSEN_HEURISTICS: Array<{ id: number; name: string; color: string }> = [
-  { id: 1, name: 'Visibilidad del estado del sistema', color: '#1976d2' },
-  { id: 2, name: 'Correspondencia entre el sistema y el mundo real', color: '#2e7d32' },
-  { id: 3, name: 'Control y libertad del usuario', color: '#ed6c02' },
-  { id: 4, name: 'Consistencia y estándares', color: '#9c27b0' },
-  { id: 5, name: 'Prevención de errores', color: '#d32f2f' },
-  { id: 6, name: 'Reconocimiento antes que recuerdo', color: '#0288d1' },
-  { id: 7, name: 'Flexibilidad y eficiencia de uso', color: '#689f38' },
-  { id: 8, name: 'Diseño estético y minimalista', color: '#455a64' },
-  { id: 9, name: 'Ayuda a los usuarios a reconocer, diagnosticar y recuperarse de errores', color: '#c2185b' },
-  { id: 10, name: 'Ayuda y documentación', color: '#5d4037' }
-];
-
-// Mock data for the bar chart
-const mockBarData: BarData[] = [
-  { id: 1, heuristic: 'Visibilidad del estado del sistema', value: 35, color: '#1976d2' },
-  { id: 2, heuristic: 'Correspondencia entre el sistema y el mundo real', value: 25, color: '#2e7d32' },
-  { id: 3, heuristic: 'Control y libertad del usuario', value: 20, color: '#ed6c02' },
-  { id: 4, heuristic: 'Consistencia y estándares', value: 15, color: '#9c27b0' },
-  { id: 5, heuristic: 'Prevención de errores', value: 5, color: '#d32f2f' },
-  { id: 6, heuristic: 'Reconocimiento antes que recuerdo', value: 50, color: '#0288d1' },
-  { id: 7, heuristic: 'Flexibilidad y eficiencia de uso', value: 60, color: '#689f38'},
-  { id: 8, heuristic: 'Diseño estético y minimalista', value: 5, color: '#455a64' },
-  { id: 9, heuristic: 'Ayuda a los usuarios a reconocer, diagnosticar y recuperarse de errores', value: 5, color: '#c2185b' },
-  { id: 10, heuristic: 'Ayuda y documentación', value: 80, color: '#5d4037' }
-];
-
-// Mock data for participants with current step
-const mockParticipants = [
-  { id: 1, nombre: 'Juan', apellido: 'Pérez', avatar: '', currentStep: 1 },
-  { id: 2, nombre: 'María', apellido: 'García', avatar: '', currentStep: 2 },
-  { id: 3, nombre: 'Carlos', apellido: 'López', avatar: '', currentStep: 3 },
-  { id: 4, nombre: 'Ana', apellido: 'Martínez', avatar: '', currentStep: 1 },
-];
-
-function CircularProgressWithLabel({ value }: { value: number }) {
-  return (
-    <Box sx={{ position: 'relative', display: 'inline-flex' }}>
-      <CircularProgress variant="determinate" value={value} size={60} />
-      <Box
-        sx={{
-          top: 0,
-          left: 0,
-          bottom: 0,
-          right: 0,
-          position: 'absolute',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Typography variant="caption" component="div" color="text.secondary">
-          {`${Math.round(value)}%`}
-        </Typography>
-      </Box>
-    </Box>
-  );
+interface ProblemaAPI {
+  id_problema: number;
+  numero_problema: number;
+  nombre_problema: string;
+  descripcion_problema: string;
+  fk_heuristica_incumplida: number;
+  ejemplo_ocurrencia: string;
+  url_imagen: string;
+  autor?: string;
+  fk_evaluacion: number;
+  fk_evaluador: number;
 }
 
 export default function EvaluationPage() {
+  // Todos los hooks juntos, al inicio
+  const [barData, setBarData] = useState<BarData[]>([]);
+  const [heuristicas, setHeuristicas] = useState<Heuristica[]>([]);
+  const [principios, setPrincipios] = useState<PrincipioHeuristica[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [problems, setProblems] = useState<Problema[]>([]);
+  const [evaluacionId, setEvaluacionId] = useState<string>('');
+
   const params = useParams();
   const router = useRouter();
   const { user, getDashboardPath } = useAuth();
@@ -252,6 +204,130 @@ export default function EvaluationPage() {
   };
   const handleCancelFinalizar = () => setOpenConfirm(false);
 
+  // Add useEffect to fetch data when component mounts
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        
+        if (params.id) {
+          const evaluacionData = await evaluacionService.getEvaluacion(Number(params.id));
+          setEvaluacionId(evaluacionData.evaluacion_identificador);
+
+          // Fetch all heuristicas
+          const heuristicasData = await heuristicService.getAllHeuristicas();
+          setHeuristicas(heuristicasData);
+
+          // Initialize bar data with all heuristicas
+          const initialBarData = heuristicasData.map((h, index) => ({
+            id: h.id_heuristica,
+            name: h.nombre,
+            heuristic: h.nombre,
+            value: 0,
+            color: `#${Math.floor(Math.random()*16777215).toString(16)}`
+          }));
+          setBarData(initialBarData);
+
+          // Fetch principios for each heuristica
+          const principiosPromises = heuristicasData.map(h => 
+            heuristicService.getPrincipiosHeuristicos(h.id_heuristica)
+          );
+          const principiosResults = await Promise.all(principiosPromises);
+          setPrincipios(principiosResults.flat());
+
+          // Cargar problemas para la tabla
+          const response = await problemaService.getProblemasByEvaluacion(Number(params.id));
+          const problemasData = response as any[];
+          
+          console.log('Estructura detallada de los problemas:', {
+            cantidadProblemas: problemasData.length,
+            primerProblema: problemasData[0],
+            todosLosProblemas: problemasData
+          });
+
+          // Mapear los datos al formato correcto
+          const problemasFormateados = problemasData.map(problema => ({
+            identificador: evaluacionData.evaluacion_identificador,
+            id: problema.id_problema,
+            numeroProblema: problema.numero_problema,
+            nombreProblema: problema.nombre_problema || 'Sin nombre',
+            descripcion: problema.descripcion_problema || 'Sin descripción',
+            heuristicaIncumplida: problema.fk_heuristica_incumplida ? `N${problema.fk_heuristica_incumplida}` : 'Nundefined',
+            ejemploOcurrencia: problema.ejemplo_ocurrencia || 'No especificado',
+            imagen: problema.url_imagen || '',
+            autor: problema.autor || '',
+            id_evaluacion: problema.fk_evaluacion,
+            id_evaluador: problema.fk_evaluador
+          }));
+
+          console.log('Problemas formateados:', problemasFormateados);
+          setProblems(problemasFormateados);
+
+          // Fetch problem counts for each principle
+          const problemCounts = await problemaService.getCantidadPrincipiosPorProblema(Number(params.id)) as unknown as any[][];
+          console.log('API problemCounts:', problemCounts);
+
+          // Transform the problem counts into a more usable format
+          // Each item in problemCounts is [numero_principio, nombre_principio, cantidad]
+          const countsByPrincipio: Record<number, { nombre: string, cantidad: number }> = {};
+          problemCounts.forEach(item => {
+            if (Array.isArray(item) && item.length >= 3) {
+              const [numero, nombre, cantidad] = item;
+              countsByPrincipio[numero] = {
+                nombre: String(nombre),
+                cantidad: Number(cantidad)
+              };
+            }
+          });
+          
+          console.log('countsByPrincipio:', countsByPrincipio);
+
+          // Create bar data using the problem counts
+          const updatedBarData = Object.entries(countsByPrincipio).map(([numero, data]) => ({
+            id: Number(numero),
+            name: data.nombre,
+            heuristic: `Principio ${numero}`,
+            value: Number(data.cantidad),
+            color: selectedColor
+          }));
+
+          console.log('updatedBarData para el gráfico:', updatedBarData);
+          setBarData(updatedBarData);
+        }
+      } catch (error) {
+        console.error('Error fetching data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [params.id]);
+
+  function CircularProgressWithLabel({ value }: { value: number }) {
+    return (
+      <Box sx={{ position: 'relative', display: 'inline-flex' }}>
+        <CircularProgress variant="determinate" value={value} size={60} />
+        <Box
+          sx={{
+            top: 0,
+            left: 0,
+            bottom: 0,
+            right: 0,
+            position: 'absolute',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Typography variant="caption" component="div" color="text.secondary">
+            {`${Math.round(value)}%`}
+          </Typography>
+        </Box>
+      </Box>
+    );
+  }
+
   return (
     <>
       <Header />
@@ -338,15 +414,18 @@ export default function EvaluationPage() {
                         justifyContent: 'center', 
                         alignItems: 'center',
                         flex: 1,
-                        minWidth: '400px', // Minimum width
+                        minWidth: '400px',
                         width: '100%',
-                        overflow: 'auto' // In case the chart gets too small
+                        overflow: 'auto'
                       }}
                     >
+                      {loading ? (
+                        <CircularProgress />
+                      ) : (
                       <BarChart
                         xAxis={[{
                           scaleType: 'band',
-                          data: mockBarData.map(item => `PH${item.id}`),
+                            data: barData.map(item => item.name),
                           label: 'Heurísticas',
                           labelStyle: { display: 'none' },
                           tickLabelStyle: {
@@ -356,7 +435,7 @@ export default function EvaluationPage() {
                         }]}
                         series={[{
                           type: 'bar',
-                          data: mockBarData.map(item => item.value),
+                            data: barData.map(item => item.value),
                           label: 'Cantidad de problemas',
                           color: selectedColor
                         }]}
@@ -365,10 +444,11 @@ export default function EvaluationPage() {
                         margin={{ top: 20, right: 20, bottom: 30, left: 50 }}
                         slotProps={{
                           legend: {
-                            hidden: true
+                              hidden: false
                           }
                         }}
                       />
+                      )}
                     </Box>
                   </Grid>
                 </Grid>
@@ -388,51 +468,72 @@ export default function EvaluationPage() {
                     <TableHead>
                       <TableRow>
                         <TableCell width="10%">ID</TableCell>
-                        <TableCell width="25%">Nombre del problema encontrado</TableCell>
+                        <TableCell width="25%">Nombre del problema</TableCell>
                         <TableCell width="20%">Heurística incumplida</TableCell>
-                        <TableCell width="35%">Comentarios</TableCell>
+                        <TableCell width="20%">Descripción</TableCell>
+                        <TableCell width="15%">Ejemplo de ocurrencia</TableCell>
                         <TableCell width="10%" align="center">Imagen</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {mockProblems
+                      {loading ? (
+                        <TableRow>
+                          <TableCell colSpan={6} align="center">
+                            <CircularProgress />
+                          </TableCell>
+                        </TableRow>
+                      ) : problems && problems.length > 0 ? (
+                        problems
                         .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
                         .map((problem) => (
                           <TableRow key={problem.id}>
-                            <TableCell>{problem.id}</TableCell>
+                              <TableCell>{problem.identificador} - {problem.numeroProblema}</TableCell>
+                              <TableCell sx={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                                {problem.nombreProblema}
+                              </TableCell>
                             <TableCell sx={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>
-                              {problem.name}
+                                {problem.heuristicaIncumplida || 'No especificada'}
                             </TableCell>
                             <TableCell sx={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>
-                              {problem.heuristic}
+                                {problem.descripcion || 'Sin descripción'}
                             </TableCell>
                             <TableCell sx={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>
-                              {problem.comments}
+                                {problem.ejemploOcurrencia || 'No especificado'}
                             </TableCell>
                             <TableCell align="center">
                               <Tooltip title="Ver imagen">
                                 <IconButton 
                                   size="small" 
-                                  onClick={() => handleImageClick(problem.image)}
+                                    onClick={() => handleImageClick(problem.imagen)}
                                   sx={{ color: 'primary.main' }}
+                                    disabled={!problem.imagen}
                                 >
                                   <ImageIcon />
                                 </IconButton>
                               </Tooltip>
                             </TableCell>
                           </TableRow>
-                        ))}
+                          ))
+                      ) : (
+                        <TableRow>
+                          <TableCell colSpan={6} align="center">
+                            <Typography>No se encontraron problemas para esta evaluación.</Typography>
+                          </TableCell>
+                        </TableRow>
+                      )}
                     </TableBody>
                   </Table>
                 </TableContainer>
+                {problems && problems.length > 0 && (
                 <TablePagination
                   component="div"
-                  count={mockProblems.length}
+                    count={problems.length}
                   page={page}
                   onPageChange={handleChangePage}
                   rowsPerPage={rowsPerPage}
                   rowsPerPageOptions={[8]}
                 />
+                )}
               </Paper>
             </Grid>
           </Grid>
@@ -443,6 +544,7 @@ export default function EvaluationPage() {
           <Paso1EncontrarProblemas 
             mostrarFinalizarPaso1={pasoActual === 1}
             onFinalizarPaso1={handleFinalizarPaso1}
+            evaluacionId={params.id as string}
           />
         </TabPanel>
         <TabPanel value={tabValue} index={2}>
@@ -455,7 +557,11 @@ export default function EvaluationPage() {
               <WarningAmberIcon sx={{ fontSize: 120, color: '#fbc02d', mt: 2 }} />
             </Box>
           ) : (
-            <Paso2Consolidar mostrarFinalizarPaso2={pasoActual === 2} onFinalizarPaso2={() => setPasoActual(3)} />
+            <Paso2Consolidar 
+              mostrarFinalizarPaso2={pasoActual === 2} 
+              onFinalizarPaso2={() => setPasoActual(3)} 
+              evaluacionId={params.id as string}
+            />
           )}
         </TabPanel>
         <TabPanel value={tabValue} index={3}>

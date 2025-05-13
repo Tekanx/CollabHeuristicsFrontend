@@ -7,6 +7,7 @@ import ImageIcon from '@mui/icons-material/Image';
 import PreviewIcon from '@mui/icons-material/Visibility';
 import Header from '@/components/Header';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/hooks/useAuth';
 
 const HEURISTICAS_NIELSEN = [
   { id: 1, nombre: 'Visibilidad del estado del sistema' },
@@ -23,36 +24,69 @@ const HEURISTICAS_NIELSEN = [
 
 function ConsolidarPage() {
   const [problemas, setProblemas] = useState<any[]>([]);
-  const identificador = problemas[0]?.identificador || 'EV01';
   const [form, setForm] = useState<any>({});
   const [openConfirm, setOpenConfirm] = useState(false);
-  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string }>({ open: false, message: '' });
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity?: 'success' | 'error' | 'info' }>({ open: false, message: '' });
   const [previewImg, setPreviewImg] = useState<string | null>(null);
+  const [evaluacionId, setEvaluacionId] = useState<string>('');
   const router = useRouter();
+  const { user } = useAuth();
 
   useEffect(() => {
+    // Verificar autenticación
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+
+    // Cargar problemas del sessionStorage
     const data = sessionStorage.getItem('problemasAConsolidar');
     if (data) {
-      const parsed = JSON.parse(data);
-      setProblemas(parsed);
-      // Inicializar el formulario con el primer problema
-      setForm({
-        id: parsed[0]?.id || '',
-        nombreProblema: parsed[0]?.nombreProblema || '',
-        heuristicaIncumplida: parsed[0]?.heuristicaIncumplida || '',
-        ejemploOcurrencia: parsed[0]?.ejemploOcurrencia || '',
-        imagen: parsed[0]?.imagen || '',
-        descripcion: parsed[0]?.descripcion || '',
-      });
+      try {
+        const parsed = JSON.parse(data);
+        if (!Array.isArray(parsed) || parsed.length === 0) {
+          throw new Error('No hay problemas válidos para consolidar');
+        }
+        setProblemas(parsed);
+        
+        // Obtener el ID de evaluación del primer problema
+        if (parsed[0]?.id_evaluacion) {
+          setEvaluacionId(parsed[0].id_evaluacion.toString());
+        }
+
+        // Inicializar el formulario con el primer problema
+        setForm({
+          id: parsed[0]?.id || '',
+          nombreProblema: parsed[0]?.nombreProblema || '',
+          heuristicaIncumplida: parsed[0]?.heuristicaIncumplida || '',
+          ejemploOcurrencia: parsed[0]?.ejemploOcurrencia || '',
+          imagen: parsed[0]?.imagen || '',
+          descripcion: parsed[0]?.descripcion || '',
+          id_evaluacion: parsed[0]?.id_evaluacion || '',
+        });
+      } catch (error) {
+        console.error('Error al parsear los problemas:', error);
+        setSnackbar({
+          open: true,
+          message: 'Error al cargar los problemas seleccionados',
+          severity: 'error'
+        });
+        // Limpiar storage y redirigir
+        sessionStorage.removeItem('problemasAConsolidar');
+        router.push('/dashboard');
+      }
+    } else {
+      // Si no hay problemas seleccionados, redirigir al dashboard
+      router.push('/dashboard');
     }
-  }, []);
+  }, [user, router]);
 
   useEffect(() => {
-    if (identificador) {
+    if (form.id) {
       // eslint-disable-next-line no-console
-      console.log('Identificador de evaluación en consolidación:', identificador);
+      console.log('Identificador de evaluación en consolidación:', form.id);
     }
-  }, [identificador]);
+  }, [form.id]);
 
   // Cambiar campo del formulario
   const handleChange = (field: string, value: string) => {
@@ -68,34 +102,59 @@ function ConsolidarPage() {
   const handleConsolidar = () => {
     // Validación simple
     if (!form.id || !form.nombreProblema || !form.heuristicaIncumplida) {
-      setSnackbar({ open: true, message: 'Complete los campos obligatorios.' });
+      setSnackbar({ 
+        open: true, 
+        message: 'Complete los campos obligatorios.',
+        severity: 'error'
+      });
       return;
     }
     setOpenConfirm(true);
   };
 
   // Confirmar consolidación
-  const handleConfirmConsolidar = () => {
-    setOpenConfirm(false);
-    const fecha = new Date().toISOString();
-    const nuevoProblema = { ...form };
-    const jsonHistorial = {
-      eliminados: problemas,
-      nuevo: nuevoProblema,
-      fecha,
-      idNuevo: nuevoProblema.id,
-      autor: 'evaluador_demo',
-    };
-    // Simular guardado en historial
-    // eslint-disable-next-line no-console
-    console.log('Historial consolidación:', jsonHistorial);
-    setSnackbar({ open: true, message: 'Consolidación realizada. Ver consola para detalles.' });
-    // Limpiar sessionStorage
-    sessionStorage.removeItem('problemasAConsolidar');
+  const handleConfirmConsolidar = async () => {
+    try {
+      setOpenConfirm(false);
+      const fecha = new Date().toISOString();
+      const nuevoProblema = { ...form };
+      const jsonHistorial = {
+        eliminados: problemas,
+        nuevo: nuevoProblema,
+        fecha,
+        idNuevo: nuevoProblema.id,
+        autor: user?.username || 'evaluador_demo',
+      };
+
+      // Aquí deberías hacer la llamada a tu API para guardar la consolidación
+      // Por ahora solo limpiamos el sessionStorage y redirigimos
+      sessionStorage.removeItem('problemasAConsolidar');
+      
+      setSnackbar({ 
+        open: true, 
+        message: 'Consolidación realizada exitosamente',
+        severity: 'success'
+      });
+
+      // Esperar un momento para que el usuario vea el mensaje de éxito
+      setTimeout(() => {
+        router.push(`/evaluator/evaluacion/${evaluacionId}`);
+      }, 1500);
+
+    } catch (error) {
+      console.error('Error al consolidar problemas:', error);
+      setSnackbar({
+        open: true,
+        message: 'Error al consolidar los problemas',
+        severity: 'error'
+      });
+    }
   };
 
   const handleCancelar = () => {
-    router.push(`/evaluator/evaluacion/${identificador}`);
+    // Limpiar el storage antes de redirigir
+    sessionStorage.removeItem('problemasAConsolidar');
+    router.push(`/evaluator/evaluacion/${evaluacionId}`);
   };
 
   return (
@@ -103,8 +162,26 @@ function ConsolidarPage() {
       <Header />
       <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
         <Breadcrumbs sx={{ mb: 2 }} aria-label="breadcrumb">
-          <Link color="inherit" href="#" onClick={e => { e.preventDefault(); router.push('/dashboard'); }}>Dashboard</Link>
-          <Link color="inherit" href="#" onClick={e => { e.preventDefault(); router.push(`/evaluator/evaluacion/${identificador}`); }}>{identificador}</Link>
+          <Link 
+            color="inherit" 
+            href="#" 
+            onClick={(e) => {
+              e.preventDefault();
+              handleCancelar();
+            }}
+          >
+            Dashboard
+          </Link>
+          <Link
+            color="inherit"
+            href="#"
+            onClick={(e) => {
+              e.preventDefault();
+              router.push(`/evaluator/evaluacion/${evaluacionId}`);
+            }}
+          >
+            {`Evaluación ${evaluacionId}`}
+          </Link>
           <Typography color="text.primary">Consolidar Problemas</Typography>
         </Breadcrumbs>
         <Box sx={{ mt: 2 }}>
@@ -311,9 +388,20 @@ function ConsolidarPage() {
             </DialogContent>
           </Dialog>
 
-          {/* Snackbar */}
-          <Snackbar open={snackbar.open} autoHideDuration={3500} onClose={() => setSnackbar({ open: false, message: '' })}>
-            <Alert severity="info" sx={{ width: '100%' }}>{snackbar.message}</Alert>
+          {/* Snackbar mejorado */}
+          <Snackbar 
+            open={snackbar.open} 
+            autoHideDuration={3000} 
+            onClose={() => setSnackbar({ open: false, message: '' })}
+            anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+          >
+            <Alert 
+              severity={snackbar.severity || 'info'} 
+              sx={{ width: '100%' }}
+              onClose={() => setSnackbar({ open: false, message: '' })}
+            >
+              {snackbar.message}
+            </Alert>
           </Snackbar>
         </Box>
       </Container>
