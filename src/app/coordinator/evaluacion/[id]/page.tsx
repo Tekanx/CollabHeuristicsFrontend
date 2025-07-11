@@ -1,16 +1,50 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
-import { Container, Typography, Box, Paper, Tabs, Tab, Breadcrumbs, Link, Grid } from '@mui/material';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useRef } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import {
+  Container,
+  Typography,
+  Paper,
+  Tabs,
+  Tab,
+  Box,
+  Breadcrumbs,
+  Link,
+  CircularProgress,
+  Grid,
+  Button,
+} from '@mui/material';
+import { 
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip as ChartTooltip,
+  Legend
+} from 'chart.js';
+import { Bar } from 'react-chartjs-2';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { useAuth } from '@/hooks/useAuth';
 import Header from '@/components/Header';
-import DetallesEvaluacion from '@/components/evaluacion/DetallesEvaluacion';
-import TablaProblemas from '@/components/evaluacion/TablaProblemas';
-import GraficoHeuristicas from '@/components/evaluacion/GraficoHeuristicas';
-import ProgresoEvaluacion from '@/components/evaluacion/ProgresoEvaluacion';
+import VistaGeneral from '@/components/dashboard/CoordinadorTabs/VistaGeneral';
+import Participantes from '@/components/dashboard/CoordinadorTabs/Participantes';
+import HeuristicasIncumplidas from '@/components/dashboard/CoordinadorTabs/HeuristicasIncumplidas';
+import Consolidacion from '@/components/dashboard/CoordinadorTabs/Consolidacion';
+import ResumenFinal from '@/components/dashboard/CoordinadorTabs/ResumenFinal';
+import Configuracion from '@/components/dashboard/CoordinadorTabs/Configuracion';
 import axios from '@/utils/axiosConfig';
+
+// Registrar los componentes de Chart.js
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  ChartTooltip,
+  Legend
+);
 
 interface Evaluacion {
   id_evaluacion: number;
@@ -29,16 +63,17 @@ interface TabPanelProps {
 
 function TabPanel(props: TabPanelProps) {
   const { children, value, index, ...other } = props;
+
   return (
     <div
       role="tabpanel"
       hidden={value !== index}
-      id={`evaluation-tabpanel-${index}`}
-      aria-labelledby={`evaluation-tab-${index}`}
+      id={`tabpanel-${index}`}
+      aria-labelledby={`tab-${index}`}
       {...other}
     >
       {value === index && (
-        <Box sx={{ py: 3 }}>
+        <Box sx={{ p: 3 }}>
           {children}
         </Box>
       )}
@@ -46,74 +81,102 @@ function TabPanel(props: TabPanelProps) {
   );
 }
 
-// Mock data for testing
-const mockProblemas = [
-  {
-    id: "HE-01",
-    nombre: "Botón de navegación poco visible",
-    heuristica: "Visibilidad del estado del sistema",
-    comentarios: "El botón de retorno no es suficientemente visible para los usuarios",
-    imagen: "/mock-image.png"
-  },
-  // Add more mock problems as needed
-];
-
-const mockHeuristicas = [
-  { id: 1, nombre: "Visibilidad del estado del sistema", valor: 5, color: "#1976d2" },
-  { id: 2, nombre: "Coincidencia entre el sistema y el mundo real", valor: 3, color: "#2e7d32" },
-  // Add more mock heuristics as needed
-];
-
-const mockPasos = [
-  { paso: 1, nombre: "Encontrar Problemas", progreso: 100 },
-  { paso: 2, nombre: "Consolidación", progreso: 60 },
-  { paso: 3, nombre: "Calcular métricas", progreso: 0 },
-];
-
-export default function CoordinatorEvaluationPage() {
+export default function EvaluacionPage() {
   const params = useParams();
   const router = useRouter();
-  const { getDashboardPath } = useAuth();
-  const [tabValue, setTabValue] = useState(0);
-  const [evaluacion, setEvaluacion] = useState<Evaluacion | null>(null);
+  const { user, getDashboardPath } = useAuth();
   const [loading, setLoading] = useState(true);
+  const [evaluacion, setEvaluacion] = useState<Evaluacion | null>(null);
+  const [tabValue, setTabValue] = useState(0);
   const [error, setError] = useState('');
 
+  // Cargar datos de la evaluación
   useEffect(() => {
     const fetchEvaluacion = async () => {
+      if (!params.id) return;
+      
       try {
+        setLoading(true);
         const response = await axios.get(`/evaluaciones/${params.id}`);
         setEvaluacion(response.data);
-      } catch (err) {
-        console.error('Error fetching evaluation:', err);
-        setError('Error al cargar la evaluación');
+        sessionStorage.setItem('identificadorEvaluacion', response.data.evaluacion_identificador);
+      } catch (err: any) {
+        console.error('Error al cargar la evaluación:', err);
+        setError('No se pudo cargar la información de la evaluación.');
       } finally {
         setLoading(false);
       }
     };
 
-    if (params.id) {
-      fetchEvaluacion();
-    }
+    fetchEvaluacion();
   }, [params.id]);
 
   const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
   };
 
+  // Función para formatear fechas localmente sin problemas de zona horaria
+  const formatDateLocal = (dateString: string) => {
+    if (!dateString || dateString === '' || dateString === null || dateString === undefined) {
+      return 'N/A';
+    }
+    
+    try {
+      console.log('📅 [EvaluacionPage] Formateando fecha:', dateString);
+      
+      let date: Date;
+      
+      if (dateString.includes('T')) {
+        // Es una fecha ISO con hora - extraer solo la parte de la fecha
+        const datePart = dateString.split('T')[0];
+        const [year, month, day] = datePart.split('-');
+        date = new Date(Number(year), Number(month) - 1, Number(day));
+      } else {
+        // Es solo una fecha (YYYY-MM-DD), tratarla como local
+        const [year, month, day] = dateString.split('-');
+        date = new Date(Number(year), Number(month) - 1, Number(day));
+      }
+      
+      const formattedDate = date.toLocaleDateString('es-ES', { 
+        day: '2-digit', 
+        month: '2-digit', 
+        year: 'numeric'
+      });
+      
+      console.log('📅 [EvaluacionPage] Fecha original:', dateString, '-> Fecha formateada:', formattedDate);
+      
+      return formattedDate;
+    } catch (error) {
+      console.error('❌ [EvaluacionPage] Error al formatear fecha:', dateString, error);
+      return 'Fecha inválida';
+    }
+  };
+
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
-        <Typography>Cargando...</Typography>
-      </Box>
+      <>
+        <Header />
+        <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+          <Box display="flex" justifyContent="center" alignItems="center" minHeight="70vh">
+            <CircularProgress />
+          </Box>
+        </Container>
+      </>
     );
   }
 
   if (error || !evaluacion) {
     return (
-      <Container>
-        <Typography color="error">{error || 'No se encontró la evaluación'}</Typography>
-      </Container>
+      <>
+        <Header />
+        <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+          <Paper sx={{ p: 3, textAlign: 'center' }}>
+            <Typography color="error" variant="h6">
+              {error || 'No se encontró la evaluación solicitada.'}
+            </Typography>
+          </Paper>
+        </Container>
+      </>
     );
   }
 
@@ -123,7 +186,7 @@ export default function CoordinatorEvaluationPage() {
       <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
         {/* Breadcrumbs */}
         <Breadcrumbs sx={{ mb: 2 }}>
-          <Link
+          <Link 
             color="inherit"
             href="#"
             onClick={(e) => {
@@ -133,65 +196,98 @@ export default function CoordinatorEvaluationPage() {
           >
             Dashboard
           </Link>
-          <Typography color="text.primary">Evaluación {params.id}</Typography>
+          <Typography color="text.primary">Evaluación {evaluacion.evaluacion_identificador}</Typography>
         </Breadcrumbs>
 
-        {/* Detalles de la evaluación */}
-        <DetallesEvaluacion {...evaluacion} />
-
-        {/* Tabs */}
-        <Paper sx={{ mb: 3 }}>
-          <Tabs
-            value={tabValue}
-            onChange={handleTabChange}
-            variant="scrollable"
-            scrollButtons="auto"
-            aria-label="evaluation tabs"
-          >
-            <Tab label="Vista General" />
-            <Tab label="Gestión de Evaluadores" />
-            <Tab label="Revisión de Problemas" />
-            <Tab label="Métricas y Reportes" />
-            <Tab label="Configuración" />
-          </Tabs>
-        </Paper>
-
-        {/* Tab Panels */}
-        <TabPanel value={tabValue} index={0}>
-          <Grid container spacing={3}>
-            {/* Progress Section */}
-            <Grid item xs={12}>
-              <ProgresoEvaluacion pasos={mockPasos} />
+        {/* Encabezado */}
+        <Paper sx={{ p: 3, mb: 3 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h4">
+              {evaluacion.nombre_evaluacion}
+            </Typography>
+            <Button
+              variant="outlined"
+              startIcon={<ArrowBackIcon />}
+              onClick={() => router.push(getDashboardPath())}
+              sx={{ minWidth: 180 }}
+            >
+              Volver al Dashboard
+            </Button>
+          </Box>
+          <Typography variant="body1" paragraph>
+            {evaluacion.descripcion || 'Sin descripción'}
+          </Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={6} md={3}>
+              <Typography variant="subtitle2" color="text.secondary">
+                Identificador
+              </Typography>
+              <Typography variant="body1">
+                {evaluacion.evaluacion_identificador}
+              </Typography>
             </Grid>
-
-            {/* Chart Section */}
-            <Grid item xs={12}>
-              <GraficoHeuristicas datos={mockHeuristicas} />
+            <Grid item xs={12} sm={6} md={3}>
+              <Typography variant="subtitle2" color="text.secondary">
+                Fecha de inicio
+              </Typography>
+              <Typography variant="body1">
+                {formatDateLocal(evaluacion.fecha_inicio)}
+              </Typography>
             </Grid>
-
-            {/* Problems Table */}
-            <Grid item xs={12}>
-              <TablaProblemas problemas={mockProblemas} />
+            <Grid item xs={12} sm={6} md={3}>
+              <Typography variant="subtitle2" color="text.secondary">
+                Fecha de término
+              </Typography>
+              <Typography variant="body1">
+                {evaluacion.fecha_termino ? formatDateLocal(evaluacion.fecha_termino) : 'No definida'}
+              </Typography>
             </Grid>
           </Grid>
-        </TabPanel>
+        </Paper>
 
-        <TabPanel value={tabValue} index={1}>
-          <Typography>Gestión de Evaluadores (Próximamente)</Typography>
-        </TabPanel>
+        {/* Pestañas */}
+        <Paper sx={{ width: '100%' }}>
+          <Tabs 
+            value={tabValue} 
+            onChange={handleTabChange} 
+            aria-label="Pestañas de la evaluación"
+            variant="scrollable"
+            scrollButtons="auto"
+            sx={{ justifyContent: 'center' }}
+          >
+            <Tab label="Vista General" />
+            <Tab label="Participantes" />
+            <Tab label="Heurísticas incumplidas" />
+            <Tab label="Consolidación" />
+            <Tab label="Resumen Final" />
+            <Tab label="Configuración" />
+          </Tabs>
 
-        <TabPanel value={tabValue} index={2}>
-          <Typography>Revisión de Problemas (Próximamente)</Typography>
-        </TabPanel>
+          <TabPanel value={tabValue} index={0}>
+            <VistaGeneral evaluacion={evaluacion} />
+          </TabPanel>
 
-        <TabPanel value={tabValue} index={3}>
-          <Typography>Métricas y Reportes (Próximamente)</Typography>
-        </TabPanel>
+          <TabPanel value={tabValue} index={1}>
+            <Participantes evaluacionId={evaluacion.id_evaluacion} />
+          </TabPanel>
 
-        <TabPanel value={tabValue} index={4}>
-          <Typography>Configuración (Próximamente)</Typography>
-        </TabPanel>
+          <TabPanel value={tabValue} index={2}>
+            <HeuristicasIncumplidas evaluacionId={evaluacion.id_evaluacion} />
+          </TabPanel>
+
+          <TabPanel value={tabValue} index={3}>
+            <Consolidacion evaluacionId={evaluacion.id_evaluacion} />
+          </TabPanel>
+
+          <TabPanel value={tabValue} index={4}>
+            <ResumenFinal evaluacionId={evaluacion.id_evaluacion} />
+          </TabPanel>
+
+          <TabPanel value={tabValue} index={5}>
+            <Configuracion evaluacionId={evaluacion.id_evaluacion} />
+          </TabPanel>
+        </Paper>
       </Container>
     </>
   );
-} 
+}
