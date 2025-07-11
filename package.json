@@ -12,8 +12,10 @@
     "@types/bcryptjs": "^2.4.6",
     "axios": "^1.9.0",
     "bcryptjs": "^2.4.3",
+    "chart.js": "^4.4.9",
     "next": "14.1.0",
     "react": "^18.2.0",
+    "react-chartjs-2": "^5.3.0",
     "react-dom": "^18.2.0"
   },
   "scripts": {
@@ -26,6 +28,7 @@
     "extends": "next/core-web-vitals"
   },
   "devDependencies": {
+    "eslint": "^9.27.0",
     "typescript": "5.8.2"
   }
 }
