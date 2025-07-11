@@ -10,4 +10,8 @@ export interface Problema {
   id_evaluacion?: number;
   id_evaluador?: number;
   identificador?: string;
+  // Campos para evaluación
+  evaluado?: boolean;
+  probabilidad?: number | null;
+  severidad?: number | null;
 } 

@@ -3,8 +3,9 @@ export interface Evaluacion {
     evaluacion_identificador: string;
     nombre_evaluacion: string;
     descripcion: string;
-    fecha_inicio: Date;
-    fecha_fin: Date;
+    fecha_inicio: string;
+    fecha_fin: string;
     id_coordinador: number;
     id_heuristica: number;
+    directorio: string;
 }

@@ -36,7 +36,16 @@ import {
   MenuItem,
   Tooltip,
 } from '@mui/material';
-import { BarChart } from '@mui/x-charts';
+import { Bar } from 'react-chartjs-2';
+import { 
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip as ChartTooltip,
+  Legend
+} from 'chart.js';
 import { useAuth } from '@/hooks/useAuth';
 import Header from '@/components/Header';
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -46,8 +55,10 @@ import CloseIcon from '@mui/icons-material/Close';
 import ParticipantsList from '@/components/ParticipantsList';
 import Paso1EncontrarProblemas from '@/components/evaluacion/pasos/Paso1EncontrarProblemas';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import CheckIcon from '@mui/icons-material/Check';
+import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import Paso2Consolidar from '@/components/evaluacion/pasos/Paso2Consolidar';
-import Paso3Resumen from '@/components/evaluacion/pasos/Paso3Resumen';
+import Paso3Calcular from '@/components/evaluacion/pasos/Paso3Calcular';
 import { heuristicService } from '@/services/heuristicaService';
 import { Heuristica } from '@/components/interface/Heuristica';
 import { PrincipioHeuristica } from '@/components/interface/PrincipioHeuristica';
@@ -55,6 +66,11 @@ import { problemaService } from '@/services/problemaService';
 import axios from '@/utils/axiosConfig';
 import { Problema } from '@/components/interface/Problema';
 import { evaluacionService } from '@/services/evaluacionService';
+import ResumenFinal from '@/components/evaluacion/pasos/Resumen';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import { evaluadorService } from '@/services/evaluadorService';
+import { Evaluador } from '@/components/interface/Evaluador';
+import { formatImagePath, handleImageError } from '@/utils/imageUtils';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -90,18 +106,15 @@ interface BarData {
   color: string;
 }
 
-interface ProblemaAPI {
-  id_problema: number;
-  numero_problema: number;
-  nombre_problema: string;
-  descripcion_problema: string;
-  fk_heuristica_incumplida: number;
-  ejemplo_ocurrencia: string;
-  url_imagen: string;
-  autor?: string;
-  fk_evaluacion: number;
-  fk_evaluador: number;
-}
+// Registrar los componentes de Chart.js que necesitamos
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  ChartTooltip,
+  Legend
+);
 
 export default function EvaluationPage() {
   // Todos los hooks juntos, al inicio
@@ -111,20 +124,140 @@ export default function EvaluationPage() {
   const [loading, setLoading] = useState(true);
   const [problems, setProblems] = useState<Problema[]>([]);
   const [evaluacionId, setEvaluacionId] = useState<string>('');
+  const [loadingProgress, setLoadingProgress] = useState(true);
 
   const params = useParams();
   const router = useRouter();
   const { user, getDashboardPath } = useAuth();
   const [tabValue, setTabValue] = useState(0);
   const [page, setPage] = useState(0);
-  const [rowsPerPage] = useState(8);
+  const [rowsPerPage] = useState(5);
   const [openSettings, setOpenSettings] = useState(false);
   const [selectedColor, setSelectedColor] = useState('#1976d2');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const [chartWidth, setChartWidth] = useState(600);
-  const [pasoActual, setPasoActual] = useState(1); // 1: Paso 1, 2: Paso 2, 3: Paso 3, 4: Resumen
+  const [pasoActual, setPasoActual] = useState(1); // Inicialmente 1, paso inicial
   const [openConfirm, setOpenConfirm] = useState(false);
+  const [evaluadorAutenticado, setEvaluadorAutenticado] = useState<Evaluador | null>(null);
+
+
+  // Cargar pasoActual desde API
+  useEffect(() => {
+    const fetchEvaluadorAutenticado = async () => {
+      try {
+        const evaluador = await evaluadorService.getEvaluadorAutenticado();
+        setEvaluadorAutenticado(evaluador);
+      } catch (error) {
+        console.error('Error al obtener el evaluador autenticado:', error);
+      }
+    };
+
+    fetchEvaluadorAutenticado();
+  }, []);
+
+  // Separar useEffect para cargar el progreso cuando tenemos el evaluador
+  useEffect(() => {
+    console.log('🔍 useEffect fetchPasoActual ejecutándose');
+    console.log('📊 params.id:', params.id);
+    console.log('👤 user:', user);
+    console.log('🆔 evaluadorAutenticado?.id_evaluador:', evaluadorAutenticado?.id_evaluador);
+    
+    const fetchPasoActual = async () => {
+      console.log('🚀 Entrando a fetchPasoActual');
+      if (params.id && evaluadorAutenticado?.id_evaluador) {
+        console.log('✅ Condiciones cumplidas, procediendo con la consulta API');
+        console.log('🔗 URL que se va a llamar: /evaluadores/evaluaciones/' + Number(params.id) + '/evaluador/' + evaluadorAutenticado.id_evaluador + '/progreso');
+        console.log('📋 Parámetros: evaluacionId=' + Number(params.id) + ', evaluadorId=' + evaluadorAutenticado.id_evaluador);
+        try {
+          setLoadingProgress(true);
+          // Obtener el progreso del evaluador desde la API
+          const progreso = await evaluacionService.getProgresoEvaluador(Number(params.id), evaluadorAutenticado.id_evaluador);
+          console.log('Progreso del evaluador obtenido:', progreso);
+          console.log('Tipo de progreso:', typeof progreso);
+          
+          // Si el progreso es null, establecer pasoActual en 1 (paso inicial)
+          if (progreso === null) {
+            setPasoActual(1);
+            console.log('Progreso era null, estableciendo pasoActual en 1');
+          } else {
+            setPasoActual(progreso);
+            console.log('Estableciendo pasoActual en:', progreso);
+          }
+        } catch (error) {
+          console.error('Error al cargar el progreso del evaluador:', error);
+          // En caso de error, establecer pasoActual en 1
+          setPasoActual(1);
+        } finally {
+          setLoadingProgress(false);
+        }
+      } else {
+        console.log('❌ Condiciones no cumplidas');
+        console.log('params.id existe:', !!params.id);
+        console.log('evaluador?.id_evaluador existe:', !!evaluadorAutenticado?.id_evaluador);
+        setLoadingProgress(false);
+      }
+    };
+
+    fetchPasoActual();
+  }, [params.id, evaluadorAutenticado?.id_evaluador]);
+
+  // Actualizar el pasoActual al finalizar cada paso
+  const actualizarPasoActual = async (nuevoPaso: number) => {
+    console.log('🔄 [PageMain] actualizarPasoActual called with nuevoPaso:', nuevoPaso);
+    try {
+      if (evaluadorAutenticado?.id_evaluador) {
+        console.log('🔄 [PageMain] Actualizando paso actual...');
+        console.log('📋 [PageMain] Parámetros para actualizar:');
+        console.log('  - evaluadorId:', evaluadorAutenticado.id_evaluador);
+        console.log('  - evaluacionId:', Number(params.id));
+        console.log('  - nuevoPaso:', nuevoPaso);
+        console.log('🔗 [PageMain] URL que se va a llamar: /evaluadores/evaluaciones/' + Number(params.id) + '/evaluador/' + evaluadorAutenticado.id_evaluador + '/progreso');
+        
+        const resultado = await evaluacionService.setProgresoEvaluador(Number(params.id), evaluadorAutenticado.id_evaluador, nuevoPaso);
+        console.log('✅ [PageMain] Respuesta de la API:', resultado);
+        
+        // Actualizar el estado local inmediatamente
+        console.log('🔄 [PageMain] Actualizando estado local pasoActual de', pasoActual, 'a', nuevoPaso);
+        setPasoActual(nuevoPaso);
+        console.log('✅ [PageMain] Estado local actualizado exitosamente');
+        
+        // Opcional: Verificar que el cambio se guardó correctamente en la base de datos
+        setTimeout(async () => {
+          try {
+            console.log('🔍 [PageMain] Verificando el progreso actualizado en la BD...');
+            const progresoVerificacion = await evaluacionService.getProgresoEvaluador(Number(params.id), evaluadorAutenticado.id_evaluador);
+            console.log('✅ [PageMain] Progreso verificado en BD:', progresoVerificacion);
+            
+            if (progresoVerificacion !== nuevoPaso) {
+              console.warn('⚠️ [PageMain] ADVERTENCIA: El progreso en BD no coincide con el esperado');
+              console.warn('  - Esperado:', nuevoPaso);
+              console.warn('  - En BD:', progresoVerificacion);
+              
+              // Forzar actualización del estado si hay discrepancia
+              setPasoActual(progresoVerificacion || nuevoPaso);
+            }
+          } catch (verificacionError) {
+            console.error('❌ [PageMain] Error al verificar progreso:', verificacionError);
+          }
+        }, 1000);
+        
+      } else {
+        console.log('❌ [PageMain] No se puede actualizar: evaluadorAutenticado es null');
+        console.log('  - evaluadorAutenticado:', evaluadorAutenticado);
+      }
+    } catch (error) {
+      console.error('❌ [PageMain] Error al actualizar el progreso del evaluador:', error);
+      console.error('❌ [PageMain] Error completo:', {
+        message: error instanceof Error ? error.message : 'Error desconocido',
+        stack: error instanceof Error ? error.stack : undefined,
+        error: error
+      });
+      
+      // Mostrar mensaje de error al usuario
+      alert('Error al actualizar el progreso. Por favor, recargue la página.');
+    }
+  };
 
   useEffect(() => {
     const updateWidth = () => {
@@ -167,29 +300,19 @@ export default function EvaluationPage() {
     setSelectedColor(color);
   };
 
-  const getStepName = (step: number) => {
-    switch(step) {
-      case 1: return 'Encontrar Problemas';
-      case 2: return 'Consolidación';
-      case 3: return 'Calcular métricas';
-      case 4: return 'Resumen Final';
-      default: return 'No iniciado';
-    }
-  };
+  const handleCloseImage = () => setSelectedImage(null);
 
   const handleImageClick = (imagePath: string) => {
-    setSelectedImage(imagePath);
-  };
-
-  const handleCloseImage = () => {
-    setSelectedImage(null);
+    setSelectedImage(formatImagePath(imagePath));
   };
 
   const handleDownloadImage = () => {
     if (selectedImage) {
       const link = document.createElement('a');
       link.href = selectedImage;
-      link.download = 'evidence.png';
+      // Use a more descriptive filename with timestamp
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      link.download = `evidence-${timestamp}.png`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -198,8 +321,8 @@ export default function EvaluationPage() {
 
   // Finalizar paso 1
   const handleFinalizarPaso1 = () => setOpenConfirm(true);
-  const handleConfirmFinalizar = () => {
-    setPasoActual(2);
+  const handleConfirmFinalizar = async () => {
+    await actualizarPasoActual(2);
     setOpenConfirm(false);
   };
   const handleCancelFinalizar = () => setOpenConfirm(false);
@@ -304,26 +427,63 @@ export default function EvaluationPage() {
     fetchData();
   }, [params.id]);
 
-  function CircularProgressWithLabel({ value }: { value: number }) {
+  function StepStatusIndicator({ step, currentStep }: { step: number; currentStep: number }) {
+    const getStepStatus = () => {
+      if (step < currentStep) return 'completed';
+      if (step === currentStep) return 'in-progress';
+      return 'not-started';
+    };
+
+    const getStatusText = (status: string) => {
+      switch (status) {
+        case 'completed': return 'Finalizado';
+        case 'in-progress': return 'En curso';
+        case 'not-started': return 'No iniciado';
+        default: return 'No iniciado';
+      }
+    };
+
+    const getStatusColor = (status: string) => {
+      switch (status) {
+        case 'completed': return '#4caf50';
+        case 'in-progress': return '#2196f3';
+        case 'not-started': return '#9e9e9e';
+        default: return '#9e9e9e';
+      }
+    };
+
+    const status = getStepStatus();
+    
     return (
-      <Box sx={{ position: 'relative', display: 'inline-flex' }}>
-        <CircularProgress variant="determinate" value={value} size={60} />
-        <Box
-          sx={{
-            top: 0,
-            left: 0,
-            bottom: 0,
-            right: 0,
-            position: 'absolute',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Typography variant="caption" component="div" color="text.secondary">
-            {`${Math.round(value)}%`}
-          </Typography>
+      <Box sx={{ 
+        textAlign: 'center',
+        p: 1,
+        borderRadius: 1,
+        bgcolor: status === 'completed' ? 'rgba(76, 175, 80, 0.1)' : 'transparent'
+      }}>
+        <Box sx={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center',
+          width: 60,
+          height: 60,
+          borderRadius: '50%',
+          bgcolor: status === 'completed' ? 'rgba(76, 175, 80, 0.1)' : 'transparent',
+          border: `2px solid ${getStatusColor(status)}`,
+          mb: 1
+        }}>
+          {status === 'completed' ? (
+            <CheckIcon sx={{ fontSize: 30, color: getStatusColor(status) }} />
+          ) : (
+            <RadioButtonUncheckedIcon sx={{ fontSize: 30, color: getStatusColor(status) }} />
+          )}
         </Box>
+        <Typography sx={{ mt: 1, fontWeight: status === 'completed' ? 'bold' : 'normal' }}>
+          Paso {step}
+        </Typography>
+        <Typography variant="caption" color="text.secondary">
+          {getStatusText(status)}
+        </Typography>
       </Box>
     );
   }
@@ -369,7 +529,7 @@ export default function EvaluationPage() {
           {/* First Row: Progress and Chart */}
           <Grid container spacing={0}>
             <Grid item xs={12}>
-              <Paper sx={{ paddingTop: 3, paddingLeft: 3, paddingRight: 3, paddingBottom: 0, mb: 3, height: 300, marginTop: 0, marginBottom: 2 }}>
+              <Paper sx={{ p: 2, paddingTop: 3, paddingLeft: 3, paddingRight: 3, mb: 3, height: 270, marginTop: 0, bgcolor: '#f5f7fa', borderRadius: 2 }}>
                 <Grid container spacing={1}>
                   {/* Progress Section */}
                   <Grid item xs={12} md={4} sx={{ display: 'flex', flexDirection: 'column' }}>
@@ -382,24 +542,23 @@ export default function EvaluationPage() {
                       alignItems: 'center',
                       flex: 1
                     }}>
-                      <Box sx={{ textAlign: 'center' }}>
-                        <CircularProgressWithLabel value={100} />
-                        <Typography sx={{ mt: 1 }}>Paso 1</Typography>
-                      </Box>
-                      <Box sx={{ textAlign: 'center' }}>
-                        <CircularProgressWithLabel value={80} />
-                        <Typography sx={{ mt: 1 }}>Paso 2</Typography>
-                      </Box>
-                      <Box sx={{ textAlign: 'center' }}>
-                        <CircularProgressWithLabel value={0} />
-                        <Typography sx={{ mt: 1 }}>Paso 3</Typography>
-                      </Box>
+                      {loadingProgress ? (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+                          <CircularProgress size={30} />
+                        </Box>
+                      ) : (
+                        <>
+                          <StepStatusIndicator step={1} currentStep={pasoActual} />
+                          <StepStatusIndicator step={2} currentStep={pasoActual} />
+                          <StepStatusIndicator step={3} currentStep={pasoActual} />
+                        </>
+                      )}
                     </Box>
                   </Grid>
 
                   {/* Chart Section */}
                   <Grid item xs={12} md={8} sx={{ display: 'flex', flexDirection: 'column' }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                       <Typography variant="h6">
                         Problemas encontrados por heurística
                       </Typography>
@@ -414,7 +573,7 @@ export default function EvaluationPage() {
                         justifyContent: 'center', 
                         alignItems: 'center',
                         flex: 1,
-                        minWidth: '400px',
+                        minWidth: '300px',
                         width: '100%',
                         overflow: 'auto'
                       }}
@@ -422,32 +581,66 @@ export default function EvaluationPage() {
                       {loading ? (
                         <CircularProgress />
                       ) : (
-                      <BarChart
-                        xAxis={[{
-                          scaleType: 'band',
-                            data: barData.map(item => item.name),
-                          label: 'Heurísticas',
-                          labelStyle: { display: 'none' },
-                          tickLabelStyle: {
-                            fontSize: 12,
-                            angle: 0
-                          }
-                        }]}
-                        series={[{
-                          type: 'bar',
-                            data: barData.map(item => item.value),
-                          label: 'Cantidad de problemas',
-                          color: selectedColor
-                        }]}
-                        height={180}
-                        width={chartWidth}
-                        margin={{ top: 20, right: 20, bottom: 30, left: 50 }}
-                        slotProps={{
-                          legend: {
-                              hidden: false
-                          }
-                        }}
-                      />
+                        <Bar
+                          data={{
+                            labels: barData.map(item => item.name),
+                            datasets: [
+                              {
+                                label: 'Cantidad de problemas',
+                                data: barData.map(item => item.value),
+                                backgroundColor: selectedColor,
+                                barThickness: 30,
+                                borderRadius: 4,
+                              }
+                            ]
+                          }}
+                          options={{
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                              legend: {
+                                display: false,
+                              },
+                              tooltip: {
+                                backgroundColor: 'rgba(0,0,0,0.7)',
+                                titleFont: {
+                                  size: 13,
+                                },
+                                bodyFont: {
+                                  size: 12,
+                                },
+                                padding: 10,
+                                cornerRadius: 4,
+                              },
+                            },
+                            scales: {
+                              x: {
+                                grid: {
+                                  display: false
+                                },
+                                ticks: {
+                                  font: {
+                                    size: 12
+                                  }
+                                }
+                              },
+                              y: {
+                                beginAtZero: true,
+                                grid: {
+                                  color: 'rgba(0,0,0,0.05)'
+                                },
+                                ticks: {
+                                  precision: 0,
+                                  font: {
+                                    size: 12
+                                  }
+                                }
+                              }
+                            }
+                          }}
+                          height={180}
+                          width={chartWidth}
+                        />
                       )}
                     </Box>
                   </Grid>
@@ -469,9 +662,9 @@ export default function EvaluationPage() {
                       <TableRow>
                         <TableCell width="10%">ID</TableCell>
                         <TableCell width="25%">Nombre del problema</TableCell>
-                        <TableCell width="20%">Heurística incumplida</TableCell>
-                        <TableCell width="20%">Descripción</TableCell>
-                        <TableCell width="15%">Ejemplo de ocurrencia</TableCell>
+                        <TableCell width="35%">Descripción</TableCell>
+                        <TableCell width="10%">Heurística incumplida</TableCell>
+                        <TableCell width="10%">Ejemplo de ocurrencia</TableCell>
                         <TableCell width="10%" align="center">Imagen</TableCell>
                       </TableRow>
                     </TableHead>
@@ -492,24 +685,29 @@ export default function EvaluationPage() {
                                 {problem.nombreProblema}
                               </TableCell>
                             <TableCell sx={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>
-                                {problem.heuristicaIncumplida || 'No especificada'}
+                                {problem.descripcion || 'Sin descripción'}
                             </TableCell>
                             <TableCell sx={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>
-                                {problem.descripcion || 'Sin descripción'}
+                                {problem.heuristicaIncumplida || 'No especificada'}
                             </TableCell>
                             <TableCell sx={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>
                                 {problem.ejemploOcurrencia || 'No especificado'}
                             </TableCell>
                             <TableCell align="center">
-                              <Tooltip title="Ver imagen">
-                                <IconButton 
-                                  size="small" 
-                                    onClick={() => handleImageClick(problem.imagen)}
-                                  sx={{ color: 'primary.main' }}
+                              <Tooltip title={problem.imagen ? "Ver imagen" : "Sin imagen"}>
+                                <span> {/* Wrapper para poder aplicar Tooltip a un componente disabled */}
+                                  <IconButton 
+                                    size="small" 
+                                    onClick={() => problem.imagen && handleImageClick(problem.imagen)}
+                                    sx={{ 
+                                      color: problem.imagen ? 'primary.main' : 'text.disabled',
+                                      cursor: problem.imagen ? 'pointer' : 'not-allowed'
+                                    }}
                                     disabled={!problem.imagen}
-                                >
-                                  <ImageIcon />
-                                </IconButton>
+                                  >
+                                    <ImageIcon />
+                                  </IconButton>
+                                </span>
                               </Tooltip>
                             </TableCell>
                           </TableRow>
@@ -531,7 +729,7 @@ export default function EvaluationPage() {
                   page={page}
                   onPageChange={handleChangePage}
                   rowsPerPage={rowsPerPage}
-                  rowsPerPageOptions={[8]}
+                  rowsPerPageOptions={[5]}
                 />
                 )}
               </Paper>
@@ -558,8 +756,8 @@ export default function EvaluationPage() {
             </Box>
           ) : (
             <Paso2Consolidar 
-              mostrarFinalizarPaso2={pasoActual === 2} 
-              onFinalizarPaso2={() => setPasoActual(3)} 
+              mostrarFinalizarPaso2={pasoActual === 2}
+              onFinalizarPaso2={() => actualizarPasoActual(3)} 
               evaluacionId={params.id as string}
             />
           )}
@@ -574,7 +772,11 @@ export default function EvaluationPage() {
               <WarningAmberIcon sx={{ fontSize: 120, color: '#fbc02d', mt: 2 }} />
             </Box>
           ) : (
-            <Paso3Resumen mostrarFinalizarPaso3={pasoActual === 3} onFinalizarPaso3={() => setPasoActual(4)} />
+            <Paso3Calcular 
+              mostrarFinalizarPaso3={pasoActual === 3} 
+              onFinalizarPaso3={() => actualizarPasoActual(4)} 
+              evaluacionId={params.id as string}
+            />
           )}
         </TabPanel>
         <TabPanel value={tabValue} index={4}>
@@ -587,7 +789,7 @@ export default function EvaluationPage() {
               <WarningAmberIcon sx={{ fontSize: 120, color: '#fbc02d', mt: 2 }} />
             </Box>
           ) : (
-            <Typography>Resumen Final (Coming soon)</Typography>
+            <ResumenFinal />
           )}
         </TabPanel>
 
@@ -625,27 +827,65 @@ export default function EvaluationPage() {
           <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             Vista previa de imagen
             <Box>
-              <IconButton onClick={handleDownloadImage} sx={{ mr: 1 }}>
+              <IconButton onClick={handleDownloadImage} sx={{ mr: 1 }} title="Descargar imagen">
                 <DownloadIcon />
               </IconButton>
-              <IconButton onClick={handleCloseImage}>
+              <IconButton 
+                onClick={() => selectedImage && window.open(selectedImage, '_blank')}
+                sx={{ mr: 1 }} 
+                title="Abrir en nueva pestaña"
+              >
+                <OpenInNewIcon />
+              </IconButton>
+              <IconButton onClick={handleCloseImage} title="Cerrar">
                 <CloseIcon />
               </IconButton>
             </Box>
           </DialogTitle>
           <DialogContent>
             {selectedImage && (
-              <Box
-                component="img"
-                src={selectedImage}
-                alt="Problem evidence"
-                sx={{
-                  width: '100%',
-                  height: 'auto',
-                  maxHeight: '70vh',
-                  objectFit: 'contain'
-                }}
-              />
+              <>
+                <Box
+                  component="div"
+                  sx={{
+                    position: 'relative',
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    width: '100%',
+                    height: 'auto',
+                    minHeight: '300px',
+                    border: '1px solid #eee',
+                    borderRadius: '4px',
+                    overflow: 'hidden'
+                  }}
+                >
+                  <img
+                    src={selectedImage}
+                    alt="Problem evidence"
+                    style={{
+                      maxWidth: '100%',
+                      maxHeight: '70vh',
+                      objectFit: 'contain'
+                    }}
+                    onError={(e) => {
+                      console.error('Error loading image:', selectedImage);
+                      
+                      // Intentar con otras extensiones comunes
+                      const extensions = ['.jpg', '.jpeg', '.png'];
+                      handleImageError(e, extensions);
+                    }}
+                  />
+                </Box>
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block', textAlign: 'center' }}>
+                  Ruta original: {selectedImage.startsWith('/') ? selectedImage.substring(1) : selectedImage}
+                </Typography>
+                <Box sx={{ mt: 1, textAlign: 'center' }}>
+                  <Typography variant="caption" color="error">
+                    Si la imagen no carga, intente abrirla en una nueva pestaña con el botón superior derecho.
+                  </Typography>
+                </Box>
+              </>
             )}
           </DialogContent>
         </Dialog>

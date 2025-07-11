@@ -43,25 +43,25 @@ function ConsolidarPage() {
     const data = sessionStorage.getItem('problemasAConsolidar');
     if (data) {
       try {
-        const parsed = JSON.parse(data);
+      const parsed = JSON.parse(data);
         if (!Array.isArray(parsed) || parsed.length === 0) {
           throw new Error('No hay problemas válidos para consolidar');
         }
-        setProblemas(parsed);
+      setProblemas(parsed);
         
         // Obtener el ID de evaluación del primer problema
         if (parsed[0]?.id_evaluacion) {
           setEvaluacionId(parsed[0].id_evaluacion.toString());
         }
 
-        // Inicializar el formulario con el primer problema
-        setForm({
-          id: parsed[0]?.id || '',
-          nombreProblema: parsed[0]?.nombreProblema || '',
-          heuristicaIncumplida: parsed[0]?.heuristicaIncumplida || '',
-          ejemploOcurrencia: parsed[0]?.ejemploOcurrencia || '',
-          imagen: parsed[0]?.imagen || '',
-          descripcion: parsed[0]?.descripcion || '',
+      // Inicializar el formulario con el primer problema
+      setForm({
+        id: parsed[0]?.id || '',
+        nombreProblema: parsed[0]?.nombreProblema || '',
+        heuristicaIncumplida: parsed[0]?.heuristicaIncumplida || '',
+        ejemploOcurrencia: parsed[0]?.ejemploOcurrencia || '',
+        imagen: parsed[0]?.imagen || '',
+        descripcion: parsed[0]?.descripcion || '',
           id_evaluacion: parsed[0]?.id_evaluacion || '',
         });
       } catch (error) {
@@ -115,20 +115,20 @@ function ConsolidarPage() {
   // Confirmar consolidación
   const handleConfirmConsolidar = async () => {
     try {
-      setOpenConfirm(false);
-      const fecha = new Date().toISOString();
-      const nuevoProblema = { ...form };
-      const jsonHistorial = {
-        eliminados: problemas,
-        nuevo: nuevoProblema,
-        fecha,
-        idNuevo: nuevoProblema.id,
+    setOpenConfirm(false);
+    const fecha = new Date().toISOString();
+    const nuevoProblema = { ...form };
+    const jsonHistorial = {
+      eliminados: problemas,
+      nuevo: nuevoProblema,
+      fecha,
+      idNuevo: nuevoProblema.id,
         autor: user?.username || 'evaluador_demo',
-      };
+    };
 
       // Aquí deberías hacer la llamada a tu API para guardar la consolidación
       // Por ahora solo limpiamos el sessionStorage y redirigimos
-      sessionStorage.removeItem('problemasAConsolidar');
+    sessionStorage.removeItem('problemasAConsolidar');
       
       setSnackbar({ 
         open: true, 

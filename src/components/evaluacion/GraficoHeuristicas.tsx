@@ -13,7 +13,25 @@ import {
   Button,
 } from '@mui/material';
 import { Settings as SettingsIcon } from '@mui/icons-material';
-import { BarChart } from '@mui/x-charts';
+import { Bar } from 'react-chartjs-2';
+import { 
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend
+} from 'chart.js';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend
+);
 
 interface DatosHeuristica {
   id: number;
@@ -83,31 +101,65 @@ export default function GraficoHeuristicas({
           overflow: 'auto'
         }}
       >
-        <BarChart
-          xAxis={[{
-            scaleType: 'band',
-            data: datos.map(item => `H${item.id}`),
-            label: 'Heurísticas',
-            labelStyle: { display: 'none' },
-            tickLabelStyle: {
-              fontSize: 12,
-              angle: 0
-            }
-          }]}
-          series={[{
-            type: 'bar',
-            data: datos.map(item => item.valor),
-            label: 'Cantidad de problemas',
-            color: selectedColor
-          }]}
-          height={180}
-          width={chartWidth}
-          margin={{ top: 20, right: 20, bottom: 30, left: 50 }}
-          slotProps={{
-            legend: {
-              hidden: true
+        <Bar
+          data={{
+            labels: datos.map(item => `H${item.id}`),
+            datasets: [
+              {
+                label: 'Cantidad de problemas',
+                data: datos.map(item => item.valor),
+                backgroundColor: selectedColor,
+                barThickness: 30,
+                borderRadius: 4,
+              }
+            ]
+          }}
+          options={{
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                display: false,
+              },
+              tooltip: {
+                backgroundColor: 'rgba(0,0,0,0.7)',
+                titleFont: {
+                  size: 13,
+                },
+                bodyFont: {
+                  size: 12,
+                },
+                padding: 10,
+                cornerRadius: 4,
+              },
+            },
+            scales: {
+              x: {
+                grid: {
+                  display: false
+                },
+                ticks: {
+                  font: {
+                    size: 12
+                  }
+                }
+              },
+              y: {
+                beginAtZero: true,
+                grid: {
+                  color: 'rgba(0,0,0,0.05)'
+                },
+                ticks: {
+                  precision: 0,
+                  font: {
+                    size: 12
+                  }
+                }
+              }
             }
           }}
+          height={180}
+          width={chartWidth}
         />
       </Box>
 

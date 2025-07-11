@@ -9,12 +9,15 @@ import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
 import CheckBoxIcon from '@mui/icons-material/CheckBox';
 import DownloadIcon from '@mui/icons-material/Download';
 import CloseIcon from '@mui/icons-material/Close';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { useRouter } from 'next/navigation';
 import { Problema } from '@/components/interface/Problema';
 import { Evaluador } from '@/components/interface/Evaluador';
 import { problemaService } from '@/services/problemaService';
 import { evaluacionService } from '@/services/evaluacionService';
+import { evaluadorService } from '@/services/evaluadorService';
 import { useAuth } from '@/hooks/useAuth';
+import { formatImagePath, handleImageError } from '@/utils/imageUtils';
 
 // Mock de heurísticas (esto podría cargarse dinámicamente en el futuro)
 const HEURISTICAS_NIELSEN = [
@@ -36,20 +39,38 @@ interface Paso2ConsolidarProps {
   evaluacionId?: string;
 }
 
+interface EvaluadorPaso {
+  id_evaluador: number;
+  nombre: string;
+  apellido: string;
+  correo: string;
+  nombre_usuario: string;
+  numero?: string;
+  genero?: number;
+  paso_actual?: number;
+}
+
+
 function Paso2Consolidar({ mostrarFinalizarPaso2 = false, onFinalizarPaso2, evaluacionId = '1' }: Paso2ConsolidarProps) {
   const [search, setSearch] = useState('');
   const [problemas, setProblemas] = useState<Problema[]>([]);
   const [evaluadores, setEvaluadores] = useState<Evaluador[]>([]);
+  const [evaluadoresConProgreso, setEvaluadoresConProgreso] = useState<EvaluadorPaso[]>([]);
   const [selectedEvaluadores, setSelectedEvaluadores] = useState<string[]>([]);
   const [selectedHeuristica, setSelectedHeuristica] = useState<string>('');
   const [selectedProblemas, setSelectedProblemas] = useState<string[]>([]);
   const [openImage, setOpenImage] = useState<string | null>(null);
   const [openConfirm, setOpenConfirm] = useState(false);
   const [openConfirmFinalizar, setOpenConfirmFinalizar] = useState(false);
-  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string }>({ open: false, message: '' });
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' | 'warning' }>({
+    open: false,
+    message: '',
+    severity: 'success',
+  });
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(5);
+  const [evaluadorAutenticado, setEvaluadorAutenticado] = useState<any>(null);
   const router = useRouter();
   const { user } = useAuth();
 
@@ -95,15 +116,42 @@ function Paso2Consolidar({ mostrarFinalizarPaso2 = false, onFinalizarPaso2, eval
         console.error('Error al cargar datos:', error);
         setSnackbar({ 
           open: true, 
-          message: 'Error al cargar los datos. Por favor, intente de nuevo.' 
+          message: 'Error al cargar los datos. Por favor, intente de nuevo.',
+          severity: 'error'
         });
       } finally {
         setLoading(false);
       }
     };
 
+    const fetchProgresoEvaluadores = async () => {
+      const evaluadores = await evaluadorService.getEvaluadoresByEvaluacion(Number(evaluacionId));
+      const evaluadoresConDatos = await Promise.all(
+        evaluadores.map(async (evaluador: EvaluadorPaso) => {
+          const progreso = await evaluacionService.getProgresoEvaluador(Number(evaluacionId), evaluador.id_evaluador);
+          return { ...evaluador, paso_actual: progreso || 1 };
+        })
+      );
+      setEvaluadoresConProgreso(evaluadoresConDatos);
+    };
+
+    fetchProgresoEvaluadores();
     fetchData();
   }, [evaluacionId]);
+
+  // Cargar evaluador autenticado
+  useEffect(() => {
+    const fetchEvaluadorAutenticado = async () => {
+      try {
+        const evaluador = await evaluadorService.getEvaluadorAutenticado();
+        setEvaluadorAutenticado(evaluador);
+      } catch (error) {
+        console.error('Error al obtener el evaluador autenticado:', error);
+      }
+    };
+
+    fetchEvaluadorAutenticado();
+  }, []);
 
   // Filtro de problemas
   const filteredProblemas = problemas.filter(p => {
@@ -118,7 +166,9 @@ function Paso2Consolidar({ mostrarFinalizarPaso2 = false, onFinalizarPaso2, eval
     // Comprobar si coincide con la búsqueda por texto
     const searchLower = search.toLowerCase();
     const matchesSearch = search === '' || 
-                         p.id?.toString().toLowerCase().includes(searchLower) || 
+                         p.id?.toString().includes(search) ||
+                         p.numeroProblema?.toString().includes(search) ||
+                         `${p.identificador}-${p.numeroProblema}`.toLowerCase().includes(searchLower) ||
                          p.nombreProblema.toLowerCase().includes(searchLower) ||
                          p.descripcion.toLowerCase().includes(searchLower) ||
                          p.heuristicaIncumplida.toLowerCase().includes(searchLower) ||
@@ -145,8 +195,15 @@ function Paso2Consolidar({ mostrarFinalizarPaso2 = false, onFinalizarPaso2, eval
 
   // Confirmar unión de problemas
   const handleUnirProblemas = () => {
+    const evaluadoresSeleccionados = evaluadoresConProgreso.filter(e => selectedEvaluadores.includes(e.id_evaluador.toString()));
+    const evaluadoresAvanzados = evaluadoresSeleccionados.some(e => e.paso_actual && e.paso_actual > 2);
+
+    if (evaluadoresAvanzados) {
+      setSnackbar({ open: true, message: 'No se puede unir problemas cuando hay participantes que han avanzado más allá del paso 2', severity: 'error' });
+      return;
+    }
     if (selectedProblemas.length < 2) {
-      setSnackbar({ open: true, message: 'Debe seleccionar al menos dos problemas para unir.' });
+      setSnackbar({ open: true, message: 'Debe seleccionar al menos dos problemas para unir.', severity: 'error' });
       return;
     }
     setOpenConfirm(true);
@@ -160,7 +217,8 @@ function Paso2Consolidar({ mostrarFinalizarPaso2 = false, onFinalizarPaso2, eval
     if (problemasSeleccionados.length < 2) {
       setSnackbar({ 
         open: true, 
-        message: 'Debe seleccionar al menos dos problemas para unir.' 
+        message: 'Debe seleccionar al menos dos problemas para unir.',
+        severity: 'error'
       });
       return;
     }
@@ -175,13 +233,15 @@ function Paso2Consolidar({ mostrarFinalizarPaso2 = false, onFinalizarPaso2, eval
   };
 
   // Imagen
-  const handleImageClick = (img: string) => setOpenImage(img);
+  const handleImageClick = (img: string) => setOpenImage(formatImagePath(img));
   const handleCloseImage = () => setOpenImage(null);
   const handleDownloadImage = () => {
     if (openImage) {
       const link = document.createElement('a');
       link.href = openImage;
-      link.download = 'evidence.png';
+      // Use a more descriptive filename with timestamp
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      link.download = `evidence-${timestamp}.png`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -193,9 +253,88 @@ function Paso2Consolidar({ mostrarFinalizarPaso2 = false, onFinalizarPaso2, eval
     setPage(newPage);
   };
 
-  const handleChangeRowsPerPage = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleRowsPerPageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setRowsPerPage(parseInt(event.target.value, 10));
     setPage(0);
+  };
+
+  // Finalizar Paso 2 - Actualizar progreso a paso 3
+  const handleFinalizarPaso2 = async () => {
+    console.log('🔄 [Paso2] Debuggando valores:');
+    console.log('  - evaluacionId (prop):', evaluacionId);
+    console.log('  - evaluacionId (tipo):', typeof evaluacionId);
+    console.log('  - evaluacionId (convertido):', Number(evaluacionId));
+    console.log('  - evaluadorAutenticado:', evaluadorAutenticado);
+    console.log('  - evaluadorAutenticado?.id_evaluador:', evaluadorAutenticado?.id_evaluador);
+    
+    try {
+      if (evaluadorAutenticado?.id_evaluador && evaluacionId) {
+        console.log('🔄 [Paso2] Finalizando Paso 2...');
+        console.log('📋 [Paso2] Actualizando progreso del evaluador:', evaluadorAutenticado.id_evaluador);
+        console.log('📋 [Paso2] En evaluación:', evaluacionId);
+        console.log('📋 [Paso2] Nuevo progreso: 3');
+        
+        // Mostrar valores exactos que se van a enviar
+        console.log('📤 [Paso2] Parámetros que se enviarán:');
+        console.log('  - evaluacionService.setProgresoEvaluador(');
+        console.log('    ', Number(evaluacionId), ',');
+        console.log('    ', evaluadorAutenticado.id_evaluador, ',');
+        console.log('    ', 3);
+        console.log('  )');
+        
+
+        // Cargar todos los problemas de la evaluación
+        const response = await problemaService.getProblemasByEvaluacion(Number(evaluacionId));
+        const problemasData = response as any[];
+        console.log('Problemas de la evaluación:', problemasData);
+
+        problemasData.forEach(async (problema) => {
+          const resultado = await evaluadorService.iniciarPuntuacion(evaluadorAutenticado.id_evaluador, problema.id_problema);
+          console.log('✅ [Paso2] Respuesta de iniciarPuntuacion:', resultado);
+        });
+
+        // Actualizar el progreso del evaluador a paso 3
+        const resultado = await evaluacionService.setProgresoEvaluador(
+          Number(evaluacionId), 
+          evaluadorAutenticado.id_evaluador, 
+          3
+        );
+        
+        console.log('✅ [Paso2] Respuesta de setProgresoEvaluador:', resultado);
+        console.log('✅ [Paso2] Paso 2 finalizado exitosamente');
+        
+        // Cerrar el diálogo de confirmación
+        setOpenConfirmFinalizar(false);
+        
+        // Llamar al prop del padre si existe para actualizar el estado global
+        if (onFinalizarPaso2) {
+          console.log('📞 [Paso2] Llamando callback del padre...');
+          onFinalizarPaso2();
+        } else {
+          console.log('⚠️ [Paso2] No hay callback del padre definido');
+        }
+        
+        console.log('🎉 [Paso2] Proceso de finalización completado');
+      } else {
+        console.error('❌ [Paso2] No se puede finalizar: evaluador o evaluación no disponible');
+        console.error('  - evaluadorAutenticado?.id_evaluador:', evaluadorAutenticado?.id_evaluador);
+        console.error('  - evaluacionId:', evaluacionId);
+        console.error('  - evaluadorAutenticado completo:', evaluadorAutenticado);
+        
+        // Mostrar mensaje de error al usuario
+        alert('Error: No se puede finalizar el paso. Falta información del evaluador o evaluación.');
+      }
+    } catch (error) {
+      console.error('❌ [Paso2] Error al finalizar el Paso 2:', error);
+      console.error('❌ [Paso2] Error completo:', {
+        message: error instanceof Error ? error.message : 'Error desconocido',
+        stack: error instanceof Error ? error.stack : undefined,
+        error: error
+      });
+      
+      // Mostrar mensaje de error al usuario
+      alert('Error al finalizar el paso 2. Por favor, intente nuevamente.');
+    }
   };
 
   if (loading) {
@@ -209,7 +348,7 @@ function Paso2Consolidar({ mostrarFinalizarPaso2 = false, onFinalizarPaso2, eval
   return (
     <Box>
       {/* Filtros */}
-      <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center' }}>
+      <Paper sx={{ display: 'flex', gap: 2, mb: 3, alignItems: 'center' , bgcolor: '#f5f7fa', p: 2, borderRadius: 2}}>
         <FormControl size="small" sx={{ minWidth: 180 }}>
           <InputLabel>Evaluadores</InputLabel>
           <Select
@@ -275,10 +414,23 @@ function Paso2Consolidar({ mostrarFinalizarPaso2 = false, onFinalizarPaso2, eval
         >
           Unir Problemas
         </Button>
-      </Box>
+      </Paper>
 
       {/* Tabla de problemas */}
       <Paper sx={{ mb: 2 }}>
+        {/* Paginación superior */}
+        <TablePagination
+          rowsPerPageOptions={[5, 10, 25]}
+          component="div"
+          count={filteredProblemas.length}
+          rowsPerPage={rowsPerPage}
+          page={page}
+          onPageChange={handleChangePage}
+          onRowsPerPageChange={handleRowsPerPageChange}
+          labelRowsPerPage="Filas por página"
+          labelDisplayedRows={({ from, to, count }) => `${from}-${to} de ${count}`}
+          sx={{ borderBottom: '1px solid #e0e0e0' }}
+        />
         <TableContainer>
           <Table size="small">
             <TableHead>
@@ -307,7 +459,7 @@ function Paso2Consolidar({ mostrarFinalizarPaso2 = false, onFinalizarPaso2, eval
                         <Tooltip title="Ver imagen">
                           <IconButton 
                             size="small" 
-                            onClick={() => handleImageClick(problema.imagen)} 
+                            onClick={() => problema.imagen ? handleImageClick(problema.imagen) : null} 
                             sx={{ color: 'primary.main' }}
                             disabled={!problema.imagen}
                           >
@@ -345,17 +497,6 @@ function Paso2Consolidar({ mostrarFinalizarPaso2 = false, onFinalizarPaso2, eval
             </TableBody>
           </Table>
         </TableContainer>
-        <TablePagination
-          rowsPerPageOptions={[5, 10, 25]}
-          component="div"
-          count={filteredProblemas.length}
-          rowsPerPage={rowsPerPage}
-          page={page}
-          onPageChange={handleChangePage}
-          onRowsPerPageChange={handleChangeRowsPerPage}
-          labelRowsPerPage="Filas por página"
-          labelDisplayedRows={({ from, to, count }) => `${from}-${to} de ${count}`}
-        />
       </Paper>
 
       {/* Botón Finalizar fuera de la tabla */}
@@ -377,22 +518,62 @@ function Paso2Consolidar({ mostrarFinalizarPaso2 = false, onFinalizarPaso2, eval
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           Vista previa de imagen
           <Box>
-            <IconButton onClick={handleDownloadImage} sx={{ mr: 1 }}>
+            <IconButton onClick={handleDownloadImage} sx={{ mr: 1 }} title="Descargar imagen">
               <DownloadIcon />
             </IconButton>
-            <IconButton onClick={handleCloseImage}>
+            <IconButton 
+              onClick={() => openImage && window.open(openImage, '_blank')}
+              sx={{ mr: 1 }} 
+              title="Abrir en nueva pestaña"
+            >
+              <OpenInNewIcon />
+            </IconButton>
+            <IconButton onClick={handleCloseImage} title="Cerrar">
               <CloseIcon />
             </IconButton>
           </Box>
         </DialogTitle>
         <DialogContent>
           {openImage && (
-            <Box
-              component="img"
-              src={openImage}
-              alt="Problem evidence"
-              sx={{ width: '100%', height: 'auto', maxHeight: '70vh', objectFit: 'contain' }}
-            />
+            <>
+              <Box
+                component="div"
+                sx={{
+                  position: 'relative',
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center', 
+                  width: '100%',
+                  height: 'auto',
+                  minHeight: '300px',
+                  border: '1px solid #eee',
+                  borderRadius: '4px',
+                  overflow: 'hidden'
+                }}
+              >
+                <img
+                  src={openImage}
+                  alt="Problem evidence"
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '70vh',
+                    objectFit: 'contain'
+                  }}
+                  onError={(e) => {
+                    console.error('Error loading image:', openImage);
+                    handleImageError(e, ['.png', '.jpg', '.jpeg']);
+                  }}
+                />
+              </Box>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block', textAlign: 'center' }}>
+                Ruta original: {openImage.startsWith('/') ? openImage.substring(1) : openImage}
+              </Typography>
+              <Box sx={{ mt: 1, textAlign: 'center' }}>
+                <Typography variant="caption" color="error">
+                  Si la imagen no carga, intente abrirla en una nueva pestaña con el botón superior derecho.
+                </Typography>
+              </Box>
+            </>
           )}
         </DialogContent>
       </Dialog>
@@ -411,13 +592,21 @@ function Paso2Consolidar({ mostrarFinalizarPaso2 = false, onFinalizarPaso2, eval
         <DialogTitle>¿Está seguro de que quiere terminar la fase 2?</DialogTitle>
         <DialogActions>
           <Button onClick={() => setOpenConfirmFinalizar(false)}>Cancelar</Button>
-          <Button onClick={() => { setOpenConfirmFinalizar(false); if (onFinalizarPaso2) onFinalizarPaso2(); }} variant="contained" color="primary">Finalizar</Button>
+          <Button onClick={handleFinalizarPaso2} variant="contained" color="primary">Finalizar</Button>
         </DialogActions>
       </Dialog>
 
       {/* Snackbar de error */}
-      <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={() => setSnackbar({ open: false, message: '' })}>
-        <Alert severity="warning" sx={{ width: '100%' }}>{snackbar.message}</Alert>
+      <Snackbar 
+      open={snackbar.open} 
+      autoHideDuration={3000} 
+      onClose={() => setSnackbar({ ...snackbar, open: false })}>
+        <Alert 
+          severity={snackbar.severity}
+          onClose={() => setSnackbar({ ...snackbar, open: false })}
+        >
+          {snackbar.message}
+        </Alert>
       </Snackbar>
     </Box>
   );

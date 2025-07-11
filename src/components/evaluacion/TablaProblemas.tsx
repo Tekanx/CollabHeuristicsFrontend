@@ -26,7 +26,7 @@ interface Problema {
   id: string;
   nombre: string;
   heuristica: string;
-  comentarios: string;
+  descripcion: string;
   imagen?: string;
 }
 
@@ -75,7 +75,7 @@ export default function TablaProblemas({ problemas, titulo = "Problemas encontra
               <TableCell width="10%">ID</TableCell>
               <TableCell width="25%">Nombre del problema</TableCell>
               <TableCell width="20%">Heurística incumplida</TableCell>
-              <TableCell width="35%">Comentarios</TableCell>
+              <TableCell width="35%">Descripción</TableCell>
               <TableCell width="10%" align="center">Imagen</TableCell>
             </TableRow>
           </TableHead>
@@ -92,7 +92,7 @@ export default function TablaProblemas({ problemas, titulo = "Problemas encontra
                     {problema.heuristica}
                   </TableCell>
                   <TableCell sx={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>
-                    {problema.comentarios}
+                    {problema.descripcion}
                   </TableCell>
                   <TableCell align="center">
                     {problema.imagen && (
