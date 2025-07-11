@@ -67,7 +67,7 @@ export default function LoginPage() {
           }}
         >
           <Typography component="h1" variant="h5">
-            Bienvenido a CollabHeuristics
+            Bienvenido a HeuristicApp
           </Typography>
           <Typography component="h2" variant="h6" sx={{ mt: 2 }}>
             ¡Ingrese sesión!
